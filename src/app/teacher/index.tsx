@@ -188,7 +188,7 @@ export default function ModuleRepositoryScreen() {
             disabled={deletingId === item.id}
             onPress={() =>
               router.push({
-                pathname: "/modules/[id]",
+                pathname: "/teacher/modules/[id]",
                 params: { id: item.id },
               })
             }
@@ -234,7 +234,7 @@ export default function ModuleRepositoryScreen() {
                 Post an announcement or add a teaching resource.
               </Text>
               <Pressable
-                onPress={() => router.push("/modules/new")}
+                onPress={() => router.push("/teacher/modules/new")}
                 style={styles.emptyButton}
               >
                 <Text style={styles.emptyButtonText}>Create a post</Text>
@@ -280,7 +280,7 @@ export default function ModuleRepositoryScreen() {
               </View>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.push("/modules/new")}
+                onPress={() => router.push("/teacher/modules/new")}
                 style={({ pressed }) => [
                   styles.addButton,
                   pressed && styles.addButtonPressed,

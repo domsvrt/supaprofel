@@ -38,6 +38,12 @@ export type Database = {
     Enums: Record<string, never>;
     Functions: Record<string, never>;
     Tables: {
+      app_config: {
+        Insert: { id?: boolean; teacher_id: string };
+        Relationships: [];
+        Row: { id: boolean; teacher_id: string };
+        Update: { id?: boolean; teacher_id?: string };
+      };
       modules: {
         Insert: ModuleInsert;
         Relationships: [];

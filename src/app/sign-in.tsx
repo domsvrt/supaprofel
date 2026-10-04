@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { router } from 'expo-router';
+import * as Linking from 'expo-linking';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -22,7 +24,9 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   async function handleSignIn() {
     const normalizedEmail = email.trim().toLowerCase();
@@ -45,16 +49,54 @@ export default function SignInScreen() {
     }
 
     setErrorMessage(null);
+    setInfoMessage(null);
     setIsSubmitting(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: normalizedEmail,
-      password,
-    });
-
-    if (error) {
-      setErrorMessage(error.message);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+      if (error) throw error;
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Unable to sign in. Try again.',
+      );
+    } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleResendConfirmation() {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!isConfigured || !supabase) {
+      setErrorMessage('Sign-in is unavailable. Please contact the teacher.');
+      return;
+    }
+    if (!EMAIL_PATTERN.test(normalizedEmail)) {
+      setErrorMessage('Enter your email address first.');
+      return;
+    }
+
+    setErrorMessage(null);
+    setInfoMessage(null);
+    setIsResending(true);
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: normalizedEmail,
+        options: { emailRedirectTo: Linking.createURL('sign-in') },
+      });
+      if (error) throw error;
+      setInfoMessage('Confirmation email sent. Open the newest email to finish registration.');
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : 'Unable to resend the email. Try again.',
+      );
+    } finally {
+      setIsResending(false);
     }
   }
 
@@ -101,6 +143,7 @@ export default function SignInScreen() {
               onChangeText={(value) => {
                 setEmail(value);
                 setErrorMessage(null);
+                setInfoMessage(null);
               }}
               onSubmitEditing={() => undefined}
               placeholder="you@example.com"
@@ -156,6 +199,12 @@ export default function SignInScreen() {
             </View>
           ) : null}
 
+          {infoMessage ? (
+            <View accessibilityLiveRegion="polite" style={styles.infoBox}>
+              <Text style={styles.infoText}>{infoMessage}</Text>
+            </View>
+          ) : null}
+
           <Pressable
             accessibilityRole="button"
             disabled={isSubmitting}
@@ -172,7 +221,26 @@ export default function SignInScreen() {
               <Text style={styles.submitButtonText}>Sign in</Text>
             )}
           </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={isSubmitting || isResending}
+            onPress={handleResendConfirmation}
+            style={styles.resendButton}
+          >
+            <Text style={styles.resendText}>
+              {isResending ? 'Sending…' : 'Resend confirmation email'}
+            </Text>
+          </Pressable>
         </View>
+
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push('/register')}
+          style={styles.registerLink}
+        >
+          <Text style={styles.registerText}>New student? Create an account</Text>
+        </Pressable>
 
         <Text style={styles.footerText}>
           Secure authentication powered by Supabase
@@ -330,6 +398,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
+  infoBox: {
+    backgroundColor: '#EDF8F1',
+    borderColor: '#B7DCC5',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 18,
+    padding: 12,
+  },
+  infoText: {
+    color: '#215E41',
+    fontSize: 13,
+    lineHeight: 19,
+  },
   submitButton: {
     alignItems: 'center',
     backgroundColor: '#1B745C',
@@ -352,10 +433,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
+  resendButton: {
+    alignItems: 'center',
+    marginTop: 14,
+    padding: 8,
+  },
+  resendText: {
+    color: '#1B745C',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   footerText: {
     color: '#7A8581',
     fontSize: 12,
     marginTop: 24,
     textAlign: 'center',
+  },
+  registerLink: {
+    alignSelf: 'center',
+    marginTop: 20,
+    padding: 8,
+  },
+  registerText: {
+    color: '#1B745C',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

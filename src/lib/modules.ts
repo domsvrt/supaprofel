@@ -296,7 +296,7 @@ export async function deleteModule(module: Module) {
   if (error) throw error;
 }
 
-export async function getModuleResourceUrl(module: Module) {
+export async function getModuleResourceUrl(module: Module, download = false) {
   if (!module.resourceType) {
     throw new Error('This announcement does not have an attached resource.');
   }
@@ -311,7 +311,11 @@ export async function getModuleResourceUrl(module: Module) {
 
   const { data, error } = await getClient()
     .storage.from(MODULE_BUCKET)
-    .createSignedUrl(module.storagePath, 60);
+    .createSignedUrl(
+      module.storagePath,
+      60,
+      download ? { download: module.fileName || true } : undefined,
+    );
 
   if (error) throw error;
 
