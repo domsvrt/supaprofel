@@ -20,6 +20,7 @@ import {
   formatFileSize,
   getErrorMessage,
   MAX_UPLOAD_BYTES,
+  prepareUpload,
   type SelectedResource,
   type UploadResource,
   updateModule,
@@ -53,6 +54,7 @@ export function ModuleForm({ module }: ModuleFormProps) {
   const [upload, setUpload] = useState<UploadResource | null>(null);
   const [link, setLink] = useState(module?.resourceUrl ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   function validateUploadSize(size: number | null) {
@@ -68,73 +70,92 @@ export function ModuleForm({ module }: ModuleFormProps) {
 
   async function chooseDocument() {
     setErrorMessage(null);
-    const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-      multiple: false,
-      type: "*/*",
-    });
+    setIsPreparing(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        // On Android, keep the picker-granted content URI. Some document
+        // providers' cached file paths fail Expo FileSystem's READ check.
+        copyToCacheDirectory: Platform.OS !== "android",
+        multiple: false,
+        type: "*/*",
+      });
 
-    if (result.canceled) return;
+      if (result.canceled) return;
 
-    const asset = result.assets[0];
-    const size = asset.size ?? asset.file?.size ?? null;
-    if (!validateUploadSize(size)) return;
+      setUpload(null);
+      setResourceChoice("upload");
+      const asset = result.assets[0];
+      const size = asset.size ?? asset.file?.size ?? null;
+      if (!validateUploadSize(size)) return;
 
-    const mimeType =
-      asset.mimeType || asset.file?.type || "application/octet-stream";
-    setUpload({
-      kind: "upload",
-      mimeType,
-      name: asset.name,
-      resourceType: resourceTypeFromMime(mimeType),
-      size,
-      uri: asset.uri,
-    });
-    setResourceChoice("upload");
+      const mimeType =
+        asset.mimeType || asset.file?.type || "application/octet-stream";
+      setUpload(await prepareUpload({
+        kind: "upload",
+        mimeType,
+        name: asset.name,
+        resourceType: resourceTypeFromMime(mimeType),
+        size,
+        uri: asset.uri,
+      }, true));
+    } catch (error) {
+      setUpload(null);
+      setResourceChoice("upload");
+      setErrorMessage(getErrorMessage(error, "Unable to choose the file."));
+    } finally {
+      setIsPreparing(false);
+    }
   }
 
   async function chooseMedia() {
     setErrorMessage(null);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    setIsPreparing(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    if (!permission.granted) {
-      setErrorMessage("Photo library permission is required to choose media.");
-      return;
+      if (!permission.granted) {
+        setErrorMessage("Photo library permission is required to choose media.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        mediaTypes: ["images", "videos"],
+        quality: 1,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      const size = asset.fileSize ?? asset.file?.size ?? null;
+      if (!validateUploadSize(size)) return;
+
+      const fallbackType = asset.type === "video" ? "video" : "image";
+      const mimeType =
+        asset.mimeType ||
+        asset.file?.type ||
+        (fallbackType === "video" ? "video/mp4" : "image/jpeg");
+      const extension = fallbackType === "video" ? "mp4" : "jpg";
+
+      setUpload(await prepareUpload({
+        kind: "upload",
+        mimeType,
+        name:
+          asset.fileName || `module-${fallbackType}-${Date.now()}.${extension}`,
+        resourceType: resourceTypeFromMime(mimeType, fallbackType),
+        size,
+        uri: asset.uri,
+      }));
+      setResourceChoice("upload");
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "Unable to choose the photo or video."));
+    } finally {
+      setIsPreparing(false);
     }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: false,
-      mediaTypes: ["images", "videos"],
-      quality: 1,
-    });
-
-    if (result.canceled) return;
-
-    const asset = result.assets[0];
-    const size = asset.fileSize ?? asset.file?.size ?? null;
-    if (!validateUploadSize(size)) return;
-
-    const fallbackType = asset.type === "video" ? "video" : "image";
-    const mimeType =
-      asset.mimeType ||
-      asset.file?.type ||
-      (fallbackType === "video" ? "video/mp4" : "image/jpeg");
-    const extension = fallbackType === "video" ? "mp4" : "jpg";
-
-    setUpload({
-      kind: "upload",
-      mimeType,
-      name:
-        asset.fileName || `module-${fallbackType}-${Date.now()}.${extension}`,
-      resourceType: resourceTypeFromMime(mimeType, fallbackType),
-      size,
-      uri: asset.uri,
-    });
-    setResourceChoice("upload");
   }
 
   async function handleSubmit() {
-    if (!session) return;
+    if (!session || isPreparing || isSubmitting || (resourceChoice === "upload" && !upload)) return;
 
     setErrorMessage(null);
     setIsSubmitting(true);
@@ -238,6 +259,7 @@ export function ModuleForm({ module }: ModuleFormProps) {
               </View>
               {isEditing && resourceChoice ? (
                 <Pressable
+                  disabled={isPreparing || isSubmitting}
                   onPress={() => {
                     setResourceChoice(null);
                     setUpload(null);
@@ -252,7 +274,7 @@ export function ModuleForm({ module }: ModuleFormProps) {
             <View style={styles.resourceButtons}>
               <Pressable
                 accessibilityRole="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isPreparing}
                 onPress={() => {
                   setResourceChoice("none");
                   setUpload(null);
@@ -270,7 +292,7 @@ export function ModuleForm({ module }: ModuleFormProps) {
 
               <Pressable
                 accessibilityRole="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isPreparing}
                 onPress={chooseDocument}
                 style={({ pressed }) => [
                   styles.resourceButton,
@@ -283,7 +305,7 @@ export function ModuleForm({ module }: ModuleFormProps) {
 
               <Pressable
                 accessibilityRole="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isPreparing}
                 onPress={chooseMedia}
                 style={({ pressed }) => [
                   styles.resourceButton,
@@ -296,7 +318,7 @@ export function ModuleForm({ module }: ModuleFormProps) {
 
               <Pressable
                 accessibilityRole="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isPreparing}
                 onPress={() => {
                   setResourceChoice("link");
                   setUpload(null);
@@ -339,10 +361,16 @@ export function ModuleForm({ module }: ModuleFormProps) {
                     {upload.name}
                   </Text>
                   <Text style={styles.previewMeta}>
-                    {formatFileSize(upload.size) ??
-                      "Size checked during upload"}
+                    File ready to upload · {formatFileSize(upload.size)}
                   </Text>
                 </View>
+              </View>
+            ) : null}
+
+            {isPreparing ? (
+              <View style={styles.preparingRow}>
+                <ActivityIndicator color="#1B745C" />
+                <Text style={styles.previewMeta}>Preparing selected file…</Text>
               </View>
             ) : null}
 
@@ -386,15 +414,15 @@ export function ModuleForm({ module }: ModuleFormProps) {
 
             <Pressable
               accessibilityRole="button"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isPreparing || (resourceChoice === "upload" && !upload)}
               onPress={handleSubmit}
               style={({ pressed }) => [
                 styles.saveButton,
                 pressed && styles.saveButtonPressed,
-                isSubmitting && styles.disabled,
+                (isSubmitting || isPreparing || (resourceChoice === "upload" && !upload)) && styles.disabled,
               ]}
             >
-              {isSubmitting ? (
+              {isSubmitting || isPreparing ? (
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text style={styles.saveButtonText}>
@@ -519,6 +547,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 12,
   },
+  preparingRow: { alignItems: "center", flexDirection: "row", gap: 10, marginTop: 12 },
   typeBadge: {
     alignItems: "center",
     backgroundColor: "#D9F1E6",
